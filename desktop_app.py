@@ -69,6 +69,17 @@ def wait_for_server(health_url, timeout_seconds=SERVER_STARTUP_TIMEOUT_SECONDS):
     raise RuntimeError(f"로컬 앱 서버를 시작하지 못했습니다: {last_error}")
 
 
+def reveal_window(window):
+    time.sleep(0.2)
+    window.show()
+    window.restore()
+
+    if server.sys.platform == "darwin":
+        from AppKit import NSApplication
+
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+
+
 def main():
     if webview is None:
         raise RuntimeError(f"pywebview를 불러오지 못했습니다: {WEBVIEW_IMPORT_ERROR}")
@@ -86,7 +97,7 @@ def main():
     )
 
     try:
-        webview.start(debug=False)
+        webview.start(reveal_window, window, debug=False)
     finally:
         desktop_server.stop()
 
