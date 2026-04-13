@@ -1,7 +1,5 @@
 # Instagram Unfollower Checker
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fhawlion%2Funfollowers)
-
 Upload an Instagram export ZIP and compare followers, following, and recently unfollowed accounts in the browser.
 
 This app also includes a lightweight server endpoint that re-checks current unfollower candidates against Instagram's public web profile API so you can filter out accounts that look deleted or unavailable.
@@ -13,6 +11,37 @@ python3 server.py --port 8000
 ```
 
 Open `http://127.0.0.1:8000`.
+
+## Desktop app build
+
+This repo can also be packaged as a desktop app for macOS and Windows.
+
+Install desktop build dependencies:
+
+```bash
+python3 -m pip install -r requirements.txt -r requirements-desktop.txt
+```
+
+Build the desktop package for the current OS:
+
+```bash
+python3 scripts/build_desktop.py
+```
+
+Build output:
+
+- macOS: `dist/Instagram Unfollower Checker.app`
+- Windows: `dist/Instagram Unfollower Checker/Instagram Unfollower Checker.exe`
+- Shareable archive: `release/instagram-unfollowers-<platform>.zip`
+
+## GitHub Actions desktop builds
+
+The repo includes `.github/workflows/build-desktop.yml`.
+
+- Run it from the Actions tab with `workflow_dispatch`, or
+- push a tag matching `desktop-v*`
+
+Artifacts are uploaded as zipped desktop builds for macOS and Windows.
 
 ## Render
 
@@ -26,3 +55,4 @@ This repo includes a `render.yaml` blueprint for a Python web service.
 
 - ZIP processing stays in the browser.
 - The active-account recheck is heuristic and depends on Instagram's current public web responses.
+- Desktop builds run the same local server inside a packaged app window.

@@ -15,7 +15,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, build_opener
 
-ROOT_DIR = Path(__file__).resolve().parent
+
+def get_runtime_root_dir():
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+
+    return Path(__file__).resolve().parent
+
+
+ROOT_DIR = get_runtime_root_dir()
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -416,6 +424,11 @@ def make_handler():
     return partial(AppRequestHandler, directory=str(ROOT_DIR))
 
 
+def create_app_server(host, port):
+    handler = make_handler()
+    return ThreadingHTTPServer((host, port), handler)
+
+
 def choose_port(preferred_port, host, allow_fallback):
     if not allow_fallback or host not in ("127.0.0.1", "localhost"):
         return preferred_port
@@ -431,8 +444,7 @@ def choose_port(preferred_port, host, allow_fallback):
 
 
 def run_server(host, port):
-    handler = make_handler()
-    server = ThreadingHTTPServer((host, port), handler)
+    server = create_app_server(host, port)
     print(f"Serving on http://{host}:{port}", flush=True)
     server.serve_forever()
 
