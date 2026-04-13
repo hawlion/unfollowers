@@ -10,6 +10,15 @@
     unavailable: "비활성·삭제 추정",
     unknown: "확인 불가",
   };
+  const PROFILE_STATUS_BATCH_SIZE = 5;
+  const PROFILE_STATUS_BATCH_DELAY_MS = 1500;
+  const PROFILE_STATUS_CACHE_KEY = "instagram-unfollowers-profile-status-cache-v1";
+  const PROFILE_STATUS_CACHE_TTLS_MS = {
+    active: 24 * 60 * 60 * 1000,
+    rate_limited: 10 * 60 * 1000,
+    unavailable: 24 * 60 * 60 * 1000,
+    unknown: 6 * 60 * 60 * 1000,
+  };
   const TAB_COPY = {
     notFollowingBack: {
       description: "내가 팔로우 중이지만 나를 팔로우하지 않는 계정 목록입니다.",
@@ -59,6 +68,9 @@
     warningMessage: document.getElementById("warning-message"),
     summaryValues: new Map(Array.from(document.querySelectorAll("[data-summary]")).map((node) => [node.dataset.summary, node])),
   };
+  const browserProfileStatusCache = loadProfileStatusCache();
+
+  pruneProfileStatusCache();
 
   function normalizeUsername(username) {
     return String(username || "").trim().toLowerCase();
@@ -258,6 +270,171 @@
     element.textContent = message || "";
   }
 
+  function getProfileStatusCacheTtlMs(status) {
+    return PROFILE_STATUS_CACHE_TTLS_MS[status] || PROFILE_STATUS_CACHE_TTLS_MS.unknown;
+  }
+
+  function getProfileCheckReferenceTime(check) {
+    if (!check) {
+      return Number.NaN;
+    }
+
+    if (Number.isFinite(check.cacheSavedAt)) {
+      return check.cacheSavedAt;
+    }
+
+    return Date.parse(check.checkedAt || "");
+  }
+
+  function isProfileCheckFresh(check, nowMs = Date.now()) {
+    const referenceTime = getProfileCheckReferenceTime(check);
+
+    if (!Number.isFinite(referenceTime)) {
+      return false;
+    }
+
+    return nowMs - referenceTime <= getProfileStatusCacheTtlMs(check.status);
+  }
+
+  function loadProfileStatusCache() {
+    try {
+      const raw = window.localStorage.getItem(PROFILE_STATUS_CACHE_KEY);
+
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function persistProfileStatusCache() {
+    try {
+      window.localStorage.setItem(PROFILE_STATUS_CACHE_KEY, JSON.stringify(browserProfileStatusCache));
+    } catch (error) {
+      // Ignore storage failures so the app can continue in private browsing modes.
+    }
+  }
+
+  function pruneProfileStatusCache(nowMs = Date.now()) {
+    let changed = false;
+
+    Object.keys(browserProfileStatusCache).forEach((username) => {
+      const cachedCheck = browserProfileStatusCache[username];
+
+      if (!cachedCheck || !isProfileCheckFresh(cachedCheck, nowMs)) {
+        delete browserProfileStatusCache[username];
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      persistProfileStatusCache();
+    }
+  }
+
+  function normalizeProfileCheckResult(item, options) {
+    const cacheSavedAt = options && Number.isFinite(options.cacheSavedAt) ? options.cacheSavedAt : Date.now();
+    const normalizedUsername = normalizeUsername(item && item.username);
+
+    if (!normalizedUsername) {
+      return null;
+    }
+
+    return {
+      cacheSavedAt,
+      cached: Boolean(options && options.cached),
+      checkedAt: item && item.checkedAt ? item.checkedAt : new Date(cacheSavedAt).toISOString(),
+      detail: (item && item.detail) || "",
+      finalUrl: (item && item.finalUrl) || "",
+      httpStatus: Number.isFinite(item && item.httpStatus) ? item.httpStatus : null,
+      reason: (item && item.reason) || "",
+      status: (item && item.status) || "unknown",
+      username: normalizedUsername,
+    };
+  }
+
+  function getCachedProfileStatus(username) {
+    const normalizedUsername = normalizeUsername(username);
+
+    if (!normalizedUsername) {
+      return null;
+    }
+
+    pruneProfileStatusCache();
+    const cachedCheck = browserProfileStatusCache[normalizedUsername];
+
+    if (!cachedCheck) {
+      return null;
+    }
+
+    if (!isProfileCheckFresh(cachedCheck)) {
+      delete browserProfileStatusCache[normalizedUsername];
+      persistProfileStatusCache();
+      return null;
+    }
+
+    return normalizeProfileCheckResult(cachedCheck, {
+      cacheSavedAt: cachedCheck.cacheSavedAt,
+      cached: true,
+    });
+  }
+
+  function rememberProfileStatus(item) {
+    const normalizedCheck = normalizeProfileCheckResult(item, {
+      cacheSavedAt: Date.now(),
+      cached: Boolean(item && item.cached),
+    });
+
+    if (!normalizedCheck) {
+      return null;
+    }
+
+    browserProfileStatusCache[normalizedCheck.username] = {
+      cacheSavedAt: normalizedCheck.cacheSavedAt,
+      checkedAt: normalizedCheck.checkedAt,
+      detail: normalizedCheck.detail,
+      finalUrl: normalizedCheck.finalUrl,
+      httpStatus: normalizedCheck.httpStatus,
+      reason: normalizedCheck.reason,
+      status: normalizedCheck.status,
+      username: normalizedCheck.username,
+    };
+    persistProfileStatusCache();
+    return normalizedCheck;
+  }
+
+  function hydrateCachedProfileChecks(entries) {
+    const nextChecks = new Map();
+
+    entries.forEach((entry) => {
+      const cachedCheck = getCachedProfileStatus(entry.normalizedUsername);
+
+      if (cachedCheck) {
+        nextChecks.set(entry.normalizedUsername, cachedCheck);
+      }
+    });
+
+    state.profileChecks = nextChecks;
+  }
+
+  function getVerificationTargets() {
+    if (!state.result) {
+      return [];
+    }
+
+    return state.result.notFollowingBack
+      .filter((entry) => !getProfileCheck(entry))
+      .map((entry) => entry.normalizedUsername);
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
   function clearVerificationState() {
     state.activeOnlyFilter = false;
     state.profileChecks = new Map();
@@ -270,7 +447,18 @@
   }
 
   function getProfileCheck(entry) {
-    return state.profileChecks.get(entry.normalizedUsername) || null;
+    const check = state.profileChecks.get(entry.normalizedUsername) || null;
+
+    if (!check) {
+      return null;
+    }
+
+    if (!isProfileCheckFresh(check)) {
+      state.profileChecks.delete(entry.normalizedUsername);
+      return null;
+    }
+
+    return check;
   }
 
   function getVerificationStats() {
@@ -387,6 +575,13 @@
           badges.append(detailBadge);
         }
 
+        if (check.cached) {
+          const cacheBadge = document.createElement("span");
+          cacheBadge.className = "status-badge";
+          cacheBadge.textContent = "캐시";
+          badges.append(cacheBadge);
+        }
+
         main.append(badges);
       }
 
@@ -474,6 +669,10 @@
     }
 
     if (state.apiAvailable === false) {
+      if (getVerificationStats().checked) {
+        return "서버 연결 없이도 이전 확인 결과를 캐시에서 불러왔습니다.";
+      }
+
       return "현재는 정적 파일 모드입니다. `python3 server.py`로 연 뒤 http://127.0.0.1:8000 에 접속하면 활성 여부를 다시 확인할 수 있습니다.";
     }
 
@@ -482,9 +681,14 @@
     }
 
     const stats = getVerificationStats();
+    const pendingTargets = getVerificationTargets().length;
 
     if (!stats.checked) {
       return "버튼을 누르면 현재 언팔러 프로필을 조회해 활성 / 비활성·삭제 추정 / 확인 불가로 다시 분류합니다.";
+    }
+
+    if (!pendingTargets) {
+      return "최근 확인 결과를 캐시에서 재사용했습니다. 활성 " + stats.active + "명, 비활성·삭제 추정 " + stats.unavailable + "명, 확인 불가 " + (stats.unknown + stats.rateLimited) + "명.";
     }
 
     return "최근 확인 결과: 활성 " + stats.active + "명, 비활성·삭제 추정 " + stats.unavailable + "명, 확인 불가 " + (stats.unknown + stats.rateLimited) + "명.";
@@ -520,7 +724,8 @@
     const hasResult = Boolean(state.result);
     const onSupportedTab = hasResult && state.activeTab === "notFollowingBack";
     const stats = getVerificationStats();
-    const canCheck = onSupportedTab && state.apiAvailable === true && !state.verificationInProgress && stats.total > 0;
+    const verificationTargets = getVerificationTargets();
+    const canCheck = onSupportedTab && state.apiAvailable === true && !state.verificationInProgress && verificationTargets.length > 0;
     const canFilter = onSupportedTab && stats.checked > 0 && !state.verificationInProgress;
 
     elements.checkActiveButton.disabled = !canCheck;
@@ -657,6 +862,7 @@
         ...parsed.comparison,
         hasRecentData: parsed.hasRecentData,
       };
+      hydrateCachedProfileChecks(state.result.notFollowingBack);
 
       setStatus("계산이 끝났습니다.", file.name);
       setMessage(elements.warningMessage, parsed.warning);
@@ -759,9 +965,11 @@
       return;
     }
 
-    const usernames = state.result.notFollowingBack.map((entry) => entry.normalizedUsername);
+    const usernames = getVerificationTargets();
 
     if (!usernames.length) {
+      state.activeOnlyFilter = true;
+      renderResult();
       return;
     }
 
@@ -776,20 +984,22 @@
     const nextChecks = new Map(state.profileChecks);
 
     try {
-      const batches = chunkEntries(usernames, 15);
+      const batches = chunkEntries(usernames, PROFILE_STATUS_BATCH_SIZE);
 
-      for (const batch of batches) {
+      for (let index = 0; index < batches.length; index += 1) {
+        const batch = batches[index];
         const payload = await fetchProfileStatusBatch(batch);
         const results = Array.isArray(payload.results) ? payload.results : [];
 
         results.forEach((item) => {
-          const normalizedUsername = normalizeUsername(item.username);
+          const normalizedCheck = rememberProfileStatus(item);
+          const normalizedUsername = normalizeUsername(normalizedCheck && normalizedCheck.username);
 
           if (!normalizedUsername) {
             return;
           }
 
-          nextChecks.set(normalizedUsername, item);
+          nextChecks.set(normalizedUsername, normalizedCheck);
         });
 
         state.profileChecks = nextChecks;
@@ -798,6 +1008,10 @@
           total: usernames.length,
         };
         renderResult();
+
+        if (index < batches.length - 1) {
+          await delay(PROFILE_STATUS_BATCH_DELAY_MS);
+        }
       }
 
       state.activeOnlyFilter = true;

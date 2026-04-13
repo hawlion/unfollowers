@@ -10,6 +10,7 @@ from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, build_opener
@@ -21,10 +22,13 @@ USER_AGENT = (
     "Chrome/135.0.0.0 Safari/537.36"
 )
 INSTAGRAM_APP_ID = "936619743392459"
-MAX_BATCH_SIZE = 20
+MAX_BATCH_SIZE = 5
 REQUEST_TIMEOUT_SECONDS = 10
 INSTAGRAM_PROFILE_URL = "https://www.instagram.com/{username}/"
 INSTAGRAM_WEB_PROFILE_INFO_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+PROFILE_STATUS_CACHE_TTL_SECONDS = 24 * 60 * 60
+PROFILE_STATUS_UNKNOWN_CACHE_TTL_SECONDS = 6 * 60 * 60
+PROFILE_STATUS_RATE_LIMIT_CACHE_TTL_SECONDS = 10 * 60
 PAGE_NOT_AVAILABLE_HINTS = (
     "Sorry, this page isn't available.",
     "Page isn't available",
@@ -40,6 +44,8 @@ LOGIN_HINTS = (
     "loginForm",
     '"is_logged_out":true',
 )
+PROFILE_STATUS_CACHE = {}
+PROFILE_STATUS_CACHE_LOCK = Lock()
 
 
 def normalize_username(username):
@@ -48,6 +54,83 @@ def normalize_username(username):
 
 def iso_now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def iso_from_timestamp(epoch_seconds):
+    return datetime.fromtimestamp(epoch_seconds, timezone.utc).isoformat()
+
+
+def epoch_now():
+    return datetime.now(timezone.utc).timestamp()
+
+
+def get_profile_status_cache_ttl_seconds(status):
+    if status == "rate_limited":
+        return PROFILE_STATUS_RATE_LIMIT_CACHE_TTL_SECONDS
+
+    if status == "unknown":
+        return PROFILE_STATUS_UNKNOWN_CACHE_TTL_SECONDS
+
+    return PROFILE_STATUS_CACHE_TTL_SECONDS
+
+
+def get_cached_profile_status(username):
+    normalized = normalize_username(username)
+
+    if not normalized:
+        return None
+
+    now = epoch_now()
+
+    with PROFILE_STATUS_CACHE_LOCK:
+        cached_entry = PROFILE_STATUS_CACHE.get(normalized)
+
+        if not cached_entry:
+            return None
+
+        expires_at = cached_entry.get("expiresAtEpoch")
+
+        if not isinstance(expires_at, (int, float)) or expires_at <= now:
+            PROFILE_STATUS_CACHE.pop(normalized, None)
+            return None
+
+        result = dict(cached_entry.get("result") or {})
+
+    result["cacheExpiresAt"] = iso_from_timestamp(expires_at)
+    result["cached"] = True
+    return result
+
+
+def store_cached_profile_status(result):
+    normalized = normalize_username(result.get("username"))
+
+    if not normalized:
+        return result
+
+    ttl_seconds = get_profile_status_cache_ttl_seconds(result.get("status"))
+    expires_at = epoch_now() + ttl_seconds
+    cached_result = dict(result)
+    cached_result["username"] = normalized
+
+    with PROFILE_STATUS_CACHE_LOCK:
+        PROFILE_STATUS_CACHE[normalized] = {
+            "expiresAtEpoch": expires_at,
+            "result": cached_result,
+        }
+
+    response = dict(cached_result)
+    response["cacheExpiresAt"] = iso_from_timestamp(expires_at)
+    response["cached"] = False
+    return response
+
+
+def fetch_or_get_cached_profile_status(username, opener=None):
+    cached_result = get_cached_profile_status(username)
+
+    if cached_result is not None:
+        return cached_result
+
+    return store_cached_profile_status(fetch_profile_status(username, opener=opener))
 
 
 def classify_instagram_profile_payload(username, payload):
@@ -291,6 +374,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
         usernames_param = params.get("usernames", [""])[0]
         usernames = [normalize_username(item) for item in usernames_param.split(",")]
         usernames = [item for item in usernames if item]
+        usernames = list(dict.fromkeys(usernames))
 
         if not usernames:
             self.respond_json(
@@ -307,7 +391,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
             return
 
         opener = build_opener()
-        results = [fetch_profile_status(username, opener=opener) for username in usernames]
+        results = [fetch_or_get_cached_profile_status(username, opener=opener) for username in usernames]
         self.respond_json(
             {
                 "checkedAt": iso_now(),
