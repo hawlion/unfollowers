@@ -26,8 +26,8 @@
       emptyFiltered: "활성으로 확인된 현재 언팔러가 없습니다.",
     },
     followersOnly: {
-      description: "나를 팔로우하지만 내가 팔로우하지 않는 계정 목록입니다.",
-      empty: "나만 팔로우 중인 계정이 없습니다.",
+      description: "나를 팔로우하지만 내가 맞팔하지 않은 계정 목록입니다.",
+      empty: "맞팔하지 않은 팔로워가 없습니다.",
     },
     recentlyUnfollowed: {
       description: "내가 최근에 언팔한 계정 목록입니다.",
