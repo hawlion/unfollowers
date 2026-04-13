@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인스타 맞팔 확인기</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <p class="eyebrow">Instagram Export ZIP</p>
+      <h1>인스타 맞팔 확인기</h1>
+      <p class="intro">ZIP 한 개만 올리면 지금 누가 맞팔인지, 누가 나를 안 받는지, 내가 최근 누구를 끊었는지 바로 정리합니다.</p>
+    </header>
+
+    <section class="upload-band" aria-labelledby="upload-title">
+      <div class="band-head">
+        <h2 id="upload-title">파일 올리기</h2>
+        <p>브라우저 안에서만 처리됩니다.</p>
+      </div>
+
+      <label class="dropzone" id="dropzone" for="zip-input">
+        <input id="zip-input" type="file" accept=".zip,application/zip" hidden>
+        <span class="dropzone-kicker">Instagram export ZIP 1개 업로드</span>
+        <strong>파일을 끌어다 놓거나 클릭해서 고르세요</strong>
+        <span class="dropzone-hint">connections/followers_and_following 폴더가 들어있는 ZIP을 사용하세요.</span>
+      </label>
+
+      <div class="status-row" id="status-row" aria-live="polite">
+        <p class="status" id="status-text">아직 파일을 읽지 않았습니다.</p>
+        <p class="status file-name" id="file-name"></p>
+      </div>
+
+      <p class="error-message" id="error-message" hidden></p>
+      <p class="warning-message" id="warning-message" hidden></p>
+    </section>
+
+    <section class="summary-band" aria-labelledby="summary-title">
+      <div class="band-head">
+        <h2 id="summary-title">요약</h2>
+        <p>기본 탭은 현재 언팔러입니다.</p>
+      </div>
+
+      <div class="summary-grid" id="summary-grid">
+        <article class="stat-card">
+          <span class="stat-label">팔로워</span>
+          <strong class="stat-value" data-summary="followersCount">-</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">팔로잉</span>
+          <strong class="stat-value" data-summary="followingCount">-</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">맞팔</span>
+          <strong class="stat-value" data-summary="mutualCount">-</strong>
+        </article>
+        <article class="stat-card highlight-card">
+          <span class="stat-label">현재 언팔러</span>
+          <strong class="stat-value" data-summary="notFollowingBackCount">-</strong>
+        </article>
+        <article class="stat-card accent-card">
+          <span class="stat-label">최근 내가 언팔</span>
+          <strong class="stat-value" data-summary="recentlyUnfollowedCount">-</strong>
+        </article>
+      </div>
+    </section>
+
+    <section class="results-band" aria-labelledby="results-title">
+      <div class="band-head">
+        <h2 id="results-title">결과</h2>
+        <p id="results-caption">파일을 올리면 목록이 열립니다.</p>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="결과 탭">
+        <button class="tab-button is-active" id="tab-not-following-back" type="button" role="tab" aria-selected="true" data-tab="notFollowingBack">
+          현재 언팔러
+          <span class="tab-count" data-tab-count="notFollowingBack">0</span>
+        </button>
+        <button class="tab-button" id="tab-followers-only" type="button" role="tab" aria-selected="false" data-tab="followersOnly">
+          나만 팔로우
+          <span class="tab-count" data-tab-count="followersOnly">0</span>
+        </button>
+        <button class="tab-button" id="tab-recently-unfollowed" type="button" role="tab" aria-selected="false" data-tab="recentlyUnfollowed">
+          최근 내가 언팔
+          <span class="tab-count" data-tab-count="recentlyUnfollowed">0</span>
+        </button>
+      </div>
+
+      <div class="result-meta">
+        <p id="tab-description">내가 팔로우 중이지만 나를 팔로우하지 않는 계정 목록입니다.</p>
+      </div>
+
+      <div class="review-tools">
+        <div class="review-copy">
+          <p class="review-title">활성 계정만 다시 보기</p>
+          <p class="review-note" id="review-note">ZIP만으로는 삭제/비활성화와 실제 언팔을 구분할 수 없어 프로필 상태를 다시 확인해야 합니다.</p>
+        </div>
+        <div class="review-actions">
+          <button class="check-button" id="check-active-button" type="button">
+            활성 여부 다시 확인
+          </button>
+          <label class="toggle">
+            <input id="active-only-toggle" type="checkbox">
+            <span>활성으로 확인된 계정만 보기</span>
+          </label>
+        </div>
+      </div>
+
+      <p class="warning-message verification-message" id="verification-message" hidden></p>
+
+      <ul class="result-list" id="result-list" aria-live="polite">
+        <li class="empty-state">ZIP을 올리면 결과가 여기에 나타납니다.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="./zip-reader.js" defer></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>
