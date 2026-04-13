@@ -61,6 +61,7 @@ def test_login_wall_detection():
 
 def test_cache_policy():
     assert_equal(get_profile_status_cache_ttl_seconds("active"), 24 * 60 * 60, "active cache ttl")
+    assert_equal(get_profile_status_cache_ttl_seconds("unavailable"), 24 * 60 * 60, "unavailable cache ttl")
     assert_equal(get_profile_status_cache_ttl_seconds("unknown"), 6 * 60 * 60, "unknown cache ttl")
     assert_equal(get_profile_status_cache_ttl_seconds("rate_limited"), 10 * 60, "rate limit cache ttl")
 

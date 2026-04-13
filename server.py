@@ -27,6 +27,7 @@ REQUEST_TIMEOUT_SECONDS = 10
 INSTAGRAM_PROFILE_URL = "https://www.instagram.com/{username}/"
 INSTAGRAM_WEB_PROFILE_INFO_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
 PROFILE_STATUS_CACHE_TTL_SECONDS = 24 * 60 * 60
+PROFILE_STATUS_UNAVAILABLE_CACHE_TTL_SECONDS = 24 * 60 * 60
 PROFILE_STATUS_UNKNOWN_CACHE_TTL_SECONDS = 6 * 60 * 60
 PROFILE_STATUS_RATE_LIMIT_CACHE_TTL_SECONDS = 10 * 60
 PAGE_NOT_AVAILABLE_HINTS = (
@@ -67,6 +68,9 @@ def epoch_now():
 def get_profile_status_cache_ttl_seconds(status):
     if status == "rate_limited":
         return PROFILE_STATUS_RATE_LIMIT_CACHE_TTL_SECONDS
+
+    if status == "unavailable":
+        return PROFILE_STATUS_UNAVAILABLE_CACHE_TTL_SECONDS
 
     if status == "unknown":
         return PROFILE_STATUS_UNKNOWN_CACHE_TTL_SECONDS
