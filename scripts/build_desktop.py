@@ -3,11 +3,15 @@
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DIST_DIR = ROOT_DIR / "dist"
 ARTIFACTS_DIR = ROOT_DIR / "release"
+BUILD_ROOT_DIR = Path(tempfile.gettempdir()) / "instagram-unfollowers-desktop-build"
+DIST_DIR = BUILD_ROOT_DIR / "dist"
+WORK_DIR = BUILD_ROOT_DIR / "build"
+SPEC_DIR = BUILD_ROOT_DIR / "spec"
 APP_NAME = "Instagram Unfollower Checker"
 APP_IDENTIFIER = "com.hawlion.instagram-unfollowers"
 ENTRYPOINT = ROOT_DIR / "desktop_app.py"
@@ -45,8 +49,12 @@ def build_command():
         "--onedir",
         "--name",
         APP_NAME,
-        "--collect-all",
-        "webview",
+        "--distpath",
+        str(DIST_DIR),
+        "--workpath",
+        str(WORK_DIR),
+        "--specpath",
+        str(SPEC_DIR),
     ]
 
     if sys.platform == "darwin":
@@ -94,11 +102,57 @@ def make_archive():
     return archive_path
 
 
+def make_macos_dmg():
+    if sys.platform != "darwin":
+        return None
+
+    staging_dir = BUILD_ROOT_DIR / "dmg-staging"
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    staged_app = staging_dir / bundle_base_dir()
+    subprocess.run(["ditto", str(bundle_path()), str(staged_app)], check=True)
+
+    applications_link = staging_dir / "Applications"
+    if applications_link.exists() or applications_link.is_symlink():
+        applications_link.unlink()
+
+    applications_link.symlink_to("/Applications")
+
+    dmg_path = ARTIFACTS_DIR / "instagram-unfollowers-macos.dmg"
+    if dmg_path.exists():
+        dmg_path.unlink()
+
+    subprocess.run(
+        [
+            "hdiutil",
+            "create",
+            "-volname",
+            APP_NAME,
+            "-srcfolder",
+            str(staging_dir),
+            "-ov",
+            "-format",
+            "UDZO",
+            str(dmg_path),
+        ],
+        check=True,
+    )
+    return dmg_path
+
+
 def main():
+    if BUILD_ROOT_DIR.exists():
+        shutil.rmtree(BUILD_ROOT_DIR)
+
     subprocess.run(build_command(), cwd=ROOT_DIR, check=True)
     finalize_bundle()
     archive_path = make_archive()
+    dmg_path = make_macos_dmg()
     print(f"Created desktop archive: {archive_path}")
+    if dmg_path is not None:
+        print(f"Created macOS disk image: {dmg_path}")
 
 
 if __name__ == "__main__":

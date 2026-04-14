@@ -5,12 +5,13 @@ import json
 import os
 import socket
 import sys
+import time
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, build_opener
@@ -197,8 +198,8 @@ def classify_instagram_profile_response(username, http_status, final_url, body_t
 
     if http_status == 429 or any(hint.lower() in lower_body for hint in RATE_LIMIT_HINTS):
         return {
-            "detail": "속도 제한 또는 임시 차단",
-            "reason": "인스타그램이 요청을 제한함",
+            "detail": "속도 제한 또는 임시 첨단",
+            "reason": "인스타그이 요청을 제한함",
             "status": "rate_limited",
         }
 
@@ -366,6 +367,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
+        self.server.mark_activity()
         parsed = urlparse(self.path)
 
         if parsed.path == "/api/health":
@@ -424,9 +426,56 @@ def make_handler():
     return partial(AppRequestHandler, directory=str(ROOT_DIR))
 
 
-def create_app_server(host, port):
+class AppThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, server_address, handler_class, inactivity_timeout_seconds=None):
+        super().__init__(server_address, handler_class)
+        self.inactivity_timeout_seconds = inactivity_timeout_seconds
+        self._last_activity_epoch = time.monotonic()
+        self._activity_lock = Lock()
+
+    def mark_activity(self):
+        with self._activity_lock:
+            self._last_activity_epoch = time.monotonic()
+
+    def idle_seconds(self):
+        with self._activity_lock:
+            return time.monotonic() - self._last_activity_epoch
+
+
+def create_app_server(host, port, inactivity_timeout_seconds=None):
     handler = make_handler()
-    return ThreadingHTTPServer((host, port), handler)
+    return AppThreadingHTTPServer(
+        (host, port),
+        handler,
+        inactivity_timeout_seconds=inactivity_timeout_seconds,
+    )
+
+
+def start_idle_shutdown_monitor(http_server):
+    timeout_seconds = getattr(http_server, "inactivity_timeout_seconds", None)
+
+    if not timeout_seconds:
+        return None
+
+    def monitor():
+        while True:
+            time.sleep(5)
+
+            if http_server.idle_seconds() < timeout_seconds:
+                continue
+
+            print(
+                f"Stopping idle server after {int(http_server.idle_seconds())} seconds without requests.",
+                flush=True,
+            )
+            http_server.shutdown()
+            return
+
+    thread = Thread(target=monitor, name="idle-shutdown-monitor", daemon=True)
+    thread.start()
+    return thread
 
 
 def choose_port(preferred_port, host, allow_fallback):
@@ -443,16 +492,20 @@ def choose_port(preferred_port, host, allow_fallback):
         return sock.getsockname()[1]
 
 
-def run_server(host, port):
-    server = create_app_server(host, port)
+def run_server(host, port, idle_timeout_seconds=None):
+    http_server = create_app_server(host, port, inactivity_timeout_seconds=idle_timeout_seconds)
+    start_idle_shutdown_monitor(http_server)
     print(f"Serving on http://{host}:{port}", flush=True)
-    server.serve_forever()
+    http_server.serve_forever()
+    http_server.server_close()
+    return 0
 
 
 def main():
     parser = argparse.ArgumentParser(description="Serve the Instagram follow checker app locally.")
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    parser.add_argument("--idle-timeout", type=int, default=0)
     parser.add_argument("--no-port-fallback", action="store_true")
     args = parser.parse_args()
 
@@ -460,7 +513,7 @@ def main():
     port = choose_port(args.port, args.host, allow_fallback)
 
     try:
-        run_server(args.host, port)
+        run_server(args.host, port, idle_timeout_seconds=args.idle_timeout or None)
     except KeyboardInterrupt:
         print("\nServer stopped.", flush=True)
         return 0

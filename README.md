@@ -30,9 +30,8 @@ python3 scripts/build_desktop.py
 
 Build output:
 
-- macOS: `dist/Instagram Unfollower Checker.app`
-- Windows: `dist/Instagram Unfollower Checker/Instagram Unfollower Checker.exe`
 - Shareable archive: `release/instagram-unfollowers-<platform>.zip`
+- macOS installer image: `release/instagram-unfollowers-macos.dmg`
 
 ## GitHub Actions desktop builds
 
@@ -55,4 +54,6 @@ This repo includes a `render.yaml` blueprint for a Python web service.
 
 - ZIP processing stays in the browser.
 - The active-account recheck is heuristic and depends on Instagram's current public web responses.
-- Desktop builds run the same local server inside a packaged app window.
+- Desktop builds on both macOS and Windows launch the same local server in the background and open the app in your default browser.
+- Background desktop servers stop automatically after a period of inactivity.
+- On macOS, prefer the `.dmg` and move the app to `Applications` before launching.
