@@ -198,8 +198,8 @@ def classify_instagram_profile_response(username, http_status, final_url, body_t
 
     if http_status == 429 or any(hint.lower() in lower_body for hint in RATE_LIMIT_HINTS):
         return {
-            "detail": "속도 제한 또는 임시 첨단",
-            "reason": "인스타그이 요청을 제한함",
+            "detail": "속도 제한 또는 임시 차단",
+            "reason": "인스타그램이 요청을 제한함",
             "status": "rate_limited",
         }
 
